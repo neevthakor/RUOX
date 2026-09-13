@@ -1,0 +1,13 @@
+system:
+  local_only_mode: true
+  
+models:
+  default_local: qwen2.5:7b
+  ollama_base_url: http://localhost:11434
+  
+security:
+  require_confirmation_above: LOW_RISK
+  redact_secrets: true
+  
+privacy:
+  default_class: PRIVATE
