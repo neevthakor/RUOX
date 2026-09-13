@@ -31,6 +31,26 @@ RUOX is a fully local, secure AI desktop assistant powered by Ollama and Qwen 2.
   * `run_command`: Controlled shell command execution.
 * **System Tools**: `get_current_time`, `get_system_info`.
 
+### Voice Mode (P1)
+- Push-to-Talk activation
+- Local audio transcription (`faster-whisper`)
+- Local TTS synthesis (`pyttsx3`)
+- Seamless text/voice transition
+
+### Computer Automation (P2)
+- Application launcher
+- Filesystem toolset
+- Controlled shell executor
+- Natural project path context
+- Action Preview & explicit confirmation loops
+
+### Persistent Memory & Task Intelligence (P3)
+- SQLite database (`data/memory.db`) for long-term memory and tasks.
+- **Memory Categories**: WORKING, EPISODIC, SEMANTIC, PROJECT.
+- **Task Persistence**: Tracks recent tasks, status (`PENDING`, `RUNNING`, `DONE`, `FAILED`), and outputs.
+- Just-in-time dynamic context injection (only relevant facts are retrieved to keep the prompt small).
+- **Privacy**: High-level redaction prevents passwords and secrets from being stored in memories.
+
 ## Security Model
 RUOX runs strictly in `LOCAL_ONLY=true` mode. It guarantees:
 1. **No Data Exfiltration**: No API calls to cloud LLMs, cloud TTS, or cloud STT.
@@ -45,11 +65,16 @@ RUOX runs strictly in `LOCAL_ONLY=true` mode. It guarantees:
 ```bash
 python -m app.main
 ```
-Try asking:
-- "What time is it?"
-- "Open Notepad."
-- "List the files in this directory."
-- "Run the python tests."
+
+### Example Commands
+Here are a few ways to interact with RUOX:
+
+- *"What operating system am I running?"* (System Info Tool)
+- *"List the files in my RUOX directory."* (Natural Path Resolution)
+- *"Run the RUOX tests."* (Shell Execution - asks for confirmation)
+- *"Remember that my favorite programming language is Python."* (Persistent Memory Write)
+- *"What is my favorite programming language?"* (Memory Retrieval)
+- *"Forget that."* or *"Show my recent tasks."* (Memory/Task Read & Delete)
 
 ### Voice Mode
 ```bash

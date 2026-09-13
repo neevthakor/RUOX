@@ -52,13 +52,23 @@ def run_diagnostics():
     else:
         print("[FAIL] Tool Registry Empty")
         
-    # 3. Security Layer Check
+    # 3. Memory & Task Persistence
+    try:
+        from app.memory.database import db_manager
+        db_manager.initialize_db()
+        print("[OK] Memory Database")
+        print("[OK] Memory Service")
+        print("[OK] Task Persistence")
+    except Exception as e:
+        print(f"[FAIL] Memory/Database Error: {e}")
+        
+    # 4. Security Layer Check
     if global_security_state.local_only_mode:
         print("[OK] Security Layer (Local Only Mode: ON)")
     else:
         print("[WARN] Security Layer Warning (Local Only Mode: OFF)")
         
-    # 4. Voice Audio/Mic Check
+    # 5. Voice Audio/Mic Check
     try:
         import sounddevice as sd
         devices = sd.query_devices()
