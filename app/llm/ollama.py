@@ -17,9 +17,11 @@ class OllamaProvider(LLMProvider):
             payload["tools"] = tools
 
         try:
-            response = requests.post(f"{self.base_url}/api/chat", json=payload)
+            response = requests.post(f"{self.base_url}/api/chat", json=payload, timeout=(5, 120))
             response.raise_for_status()
             return response.json()
+        except requests.exceptions.Timeout as e:
+            return {"error": f"LLM Timeout: {str(e)}"}
         except Exception as e:
             return {"error": str(e)}
 
@@ -34,11 +36,13 @@ class OllamaProvider(LLMProvider):
             payload["tools"] = tools
 
         try:
-            with requests.post(f"{self.base_url}/api/chat", json=payload, stream=True) as response:
+            with requests.post(f"{self.base_url}/api/chat", json=payload, stream=True, timeout=(5, 120)) as response:
                 response.raise_for_status()
                 for line in response.iter_lines():
                     if line:
                         yield json.loads(line)
+        except requests.exceptions.Timeout as e:
+            yield {"error": f"LLM Timeout: {str(e)}"}
         except Exception as e:
             yield {"error": str(e)}
 

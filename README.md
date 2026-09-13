@@ -71,7 +71,11 @@ RUOX is a fully local, secure AI desktop assistant powered by Ollama and Qwen 2.
 
 ---
 
-## Security Model
+## Performance & Architecture (P6.1)
+- **Tool Routing**: RUOX dynamically filters the 19+ available tool schemas based on the semantic context of your prompt (e.g. `SYSTEM`, `MEMORY`, `WEB`) to prevent overloading the LLM context window. This massively reduces "Time to First Token" (TTFT) latency for 7B parameter models.
+- **Context Management**: Memory and Task histories are selectively injected only when relevant data exists, and conversation history is bounded to the last 5 turns to prevent context bloat.
+- **Streaming**: Generation chunks (`stream=True`) pipe instantly to the UI asynchronously.
+- **Cancellation**: Pressing STOP cooperatively breaks the active Ollama inference stream and terminates active TTS immediately.
 RUOX runs strictly in `LOCAL_ONLY=true` mode. It guarantees:
 1. **No Data Exfiltration**: No API calls to cloud LLMs, cloud TTS, or cloud STT.
 2. **Permission Model**: Every tool defines a permission level (`READ`, `LOW_RISK`, `MEDIUM_RISK`, `HIGH_RISK`).

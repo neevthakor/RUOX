@@ -28,7 +28,6 @@ class RUOXAgent:
         task.status = "RUNNING"
         
         llm = self.router.get_provider(PrivacyClass.PRIVATE, "MEDIUM")
-        tools = tool_registry.get_all_schemas()
         
         # System prompt initialization if no messages exist
         if not task.messages:
@@ -42,6 +41,25 @@ class RUOXAgent:
             if "on_state_change" in self.callbacks:
                 self.callbacks["on_state_change"]("THINKING")
                 
+            # Filter schemas based on current user goal or recent history
+            recent_text = " ".join([m["content"] for m in task.messages[-3:] if m["role"] == "user"])
+            tools = tool_registry.get_schemas_for_context(recent_text)
+            
+            # Bound context to prevent endless growth
+            # Always keep system messages
+            system_msgs = [m for m in task.messages if m["role"] == "system"]
+            # Keep the last 10 messages (5 turns)
+            recent_msgs = [m for m in task.messages if m["role"] != "system"][-10:]
+            
+            bounded_messages = system_msgs + recent_msgs
+            
+            # Print performance metrics
+            sys_chars = sum(len(m["content"]) for m in system_msgs)
+            hist_chars = sum(len(m["content"]) for m in recent_msgs)
+            total_chars = sys_chars + hist_chars
+            
+            self._print(f"\n[RUOX PERF] tools={len(tools)} sys_chars={sys_chars} hist_chars={hist_chars} approx_context_chars={total_chars}")
+            
             self._print("\nRUOX: ", end="", flush=True)
             full_content = ""
             tool_calls = []
@@ -50,7 +68,7 @@ class RUOXAgent:
             first_token_received = False
             
             try:
-                for chunk in llm.stream(task.messages, tools=tools):
+                for chunk in llm.stream(bounded_messages, tools=tools):
                     if "on_cancel_check" in self.callbacks and self.callbacks["on_cancel_check"]():
                         self._print("\n[Generation Cancelled by User]")
                         task.status = "WAITING_USER"
