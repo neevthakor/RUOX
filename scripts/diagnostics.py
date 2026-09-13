@@ -77,7 +77,21 @@ def run_diagnostics():
     except Exception as e:
         print(f"[FAIL] Web Subsystem Error: {e}")
 
-    # 5. Security Layer Check
+    # 5. Vision Subsystem
+    try:
+        from app.vision.capture import screen_capturer
+        from app.vision.ocr import get_ocr_provider
+        print("[OK] Screen Capture")
+        ocr = get_ocr_provider()
+        if ocr.available:
+            print("[OK] OCR")
+        else:
+            print("[INFO] OCR unavailable — install/configure provider (e.g. Tesseract)")
+        print("[OK] Screen Analyzer")
+    except Exception as e:
+        print(f"[FAIL] Vision Subsystem Error: {e}")
+
+    # 6. Security Layer Check
     if global_security_state.local_only_mode:
         print("[OK] Security Layer (Local Only Mode: ON)")
     else:

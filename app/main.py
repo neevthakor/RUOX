@@ -30,6 +30,7 @@ def main():
     
     from app.tools.memory import RememberInformationTool, SearchMemoryTool, ListMemoriesTool, ForgetMemoryTool, GetRecentTasksTool
     from app.tools.web import WebSearchTool, WebFetchTool, WebResearchTool
+    from app.vision import ScreenContextTool, AnalyzeScreenTool, CaptureScreenTool
     from app.memory.database import db_manager
     from app.memory.task_store import task_store
     from app.memory.manager import memory_manager
@@ -54,6 +55,9 @@ def main():
     tool_registry.register(WebSearchTool())
     tool_registry.register(WebFetchTool())
     tool_registry.register(WebResearchTool())
+    tool_registry.register(ScreenContextTool())
+    tool_registry.register(AnalyzeScreenTool())
+    tool_registry.register(CaptureScreenTool())
     
     # Initialize Agent
     agent = RUOXAgent(router)

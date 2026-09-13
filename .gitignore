@@ -6,3 +6,5 @@ data/
 logs/
 .vscode/
 .idea/
+.tmp.driveupload/
+data/runtime/screens/

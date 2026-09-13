@@ -51,6 +51,26 @@ RUOX is a fully local, secure AI desktop assistant powered by Ollama and Qwen 2.
 - Just-in-time dynamic context injection (only relevant facts are retrieved to keep the prompt small).
 - **Privacy**: High-level redaction prevents passwords and secrets from being stored in memories.
 
+### Secure Web Research (P4)
+- Safe URL fetching and DuckDuckGo HTML web searching
+- Strict SSRF protection (blocks localhost, metadata endpoints)
+- Prompt Injection defense (isolates web content)
+- Local-Only Mode compliance
+
+### Screen Vision (P5)
+- **Local Screen Capture**: Grabs primary screen and downscales safely.
+- **Active Window Detection**: Detects foreground application.
+- **Local OCR**: Abstracted OCR provider (supports Tesseract) to read screen text.
+- **Privacy-First**: Screen content is treated as sensitive local data. Screenshots are saved to temporary directories and deleted immediately after processing. No cloud vision APIs are used. Coordinate bounds are safely validated.
+
+### Desktop HUD (P6)
+- **Futuristic UI**: A dark, clean, custom desktop interface built with `customtkinter`.
+- **Live Status Panels**: Real-time visibility into Security (LOCAL_ONLY), active Memory, running Tasks, and Vision subsystem status.
+- **Approval Flow**: Danger/Confirmation actions present a clear Approve/Deny dialog directly in the GUI.
+- **Push-to-Talk Voice**: Native MIC integration with real-time TTS readout.
+
+---
+
 ## Security Model
 RUOX runs strictly in `LOCAL_ONLY=true` mode. It guarantees:
 1. **No Data Exfiltration**: No API calls to cloud LLMs, cloud TTS, or cloud STT.
@@ -75,11 +95,20 @@ Here are a few ways to interact with RUOX:
 - *"Remember that my favorite programming language is Python."* (Persistent Memory Write)
 - *"What is my favorite programming language?"* (Memory Retrieval)
 - *"Forget that."* or *"Show my recent tasks."* (Memory/Task Read & Delete)
+- *"Search the web for the latest Python news."* (Web Research Tool)
+- *"What is on my screen?"* (Screen Analysis Tool)
 
 ### Voice Mode
 ```bash
 python -m app.main --voice
 ```
+
+### Desktop HUD Mode
+```bash
+python -m app.ui.hud
+```
+
+---
 *(Press Enter to stop recording after speaking)*
 
 ### Diagnostics & Tests
