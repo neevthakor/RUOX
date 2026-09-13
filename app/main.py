@@ -29,6 +29,7 @@ def main():
     router = LLMRouter(local_provider=local_llm)
     
     from app.tools.memory import RememberInformationTool, SearchMemoryTool, ListMemoriesTool, ForgetMemoryTool, GetRecentTasksTool
+    from app.tools.web import WebSearchTool, WebFetchTool, WebResearchTool
     from app.memory.database import db_manager
     from app.memory.task_store import task_store
     from app.memory.manager import memory_manager
@@ -50,6 +51,9 @@ def main():
     tool_registry.register(ListMemoriesTool())
     tool_registry.register(ForgetMemoryTool())
     tool_registry.register(GetRecentTasksTool())
+    tool_registry.register(WebSearchTool())
+    tool_registry.register(WebFetchTool())
+    tool_registry.register(WebResearchTool())
     
     # Initialize Agent
     agent = RUOXAgent(router)

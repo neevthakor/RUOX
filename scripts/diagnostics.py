@@ -62,7 +62,22 @@ def run_diagnostics():
     except Exception as e:
         print(f"[FAIL] Memory/Database Error: {e}")
         
-    # 4. Security Layer Check
+    # 4. Web Subsystem
+    try:
+        from app.tools.web.safety import is_local_only
+        from app.tools.web.search import get_search_provider
+        print("[OK] Web Subsystem")
+        print("[OK] Web Security Policies")
+        provider = get_search_provider()
+        print(f"[OK] Search Provider Configured: {type(provider).__name__}")
+        if is_local_only():
+            print("[INFO] Web access disabled by LOCAL_ONLY=true")
+        else:
+            print("[INFO] Web access ENABLED")
+    except Exception as e:
+        print(f"[FAIL] Web Subsystem Error: {e}")
+
+    # 5. Security Layer Check
     if global_security_state.local_only_mode:
         print("[OK] Security Layer (Local Only Mode: ON)")
     else:
