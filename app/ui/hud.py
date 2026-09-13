@@ -91,9 +91,8 @@ class RUOXHUD(ctk.CTk):
             "on_cancel_check": lambda: self.cancel_requested
         }
         self.agent = RUOXAgent(self.router, callbacks=callbacks)
-        self.current_task = Task(goal="Interactive session started via HUD.")
         system_context = get_system_context()
-        self.current_task.messages = [{
+        self.session_messages = [{
             "role": "system",
             "content": f"You are RUOX, a secure local AI assistant.\n\n{system_context}"
         }]
@@ -352,11 +351,13 @@ class RUOXHUD(ctk.CTk):
             
         self.append_chat(f"USER: {text}\n", "user")
         
-        self.current_task.messages.append({"role": "user", "content": text})
-        
         # Inject dynamic context only if relevant data exists (Optimization)
         relevant_mems = memory_manager.search_relevant_memories(text, limit=3)
-        recent_tasks = task_store.get_recent_tasks(limit=1) # Reduced from 3 to 1 to save tokens
+        
+        recent_tasks = []
+        words = set(text.lower().split())
+        if any(w in words for w in ["task", "resume", "continue", "earlier", "previous", "status", "last"]):
+            recent_tasks = task_store.get_recent_tasks(limit=1)
         
         context_msg = None
         if relevant_mems or recent_tasks:
@@ -369,7 +370,9 @@ class RUOXHUD(ctk.CTk):
                 parts.append(f"RECENT TASK HISTORY:\n{task_text}")
                 
             context_msg = "[SYSTEM CONTEXT]\n" + "\n\n".join(parts)
-            self.current_task.messages.insert(-1, {"role": "system", "content": context_msg})
+            self.session_messages.append({"role": "system", "content": context_msg})
+            
+        self.session_messages.append({"role": "user", "content": text})
         
         # We start the agent thread
         if self.agent_thread and self.agent_thread.is_alive():
@@ -380,15 +383,20 @@ class RUOXHUD(ctk.CTk):
         
         def run_agent():
             try:
-                self.current_task.goal = text
-                previous_msg_count = len(self.current_task.messages)
+                # Create a fresh Task for this specific interaction
+                current_task = Task(goal=text)
+                current_task.messages = self.session_messages.copy()
+                previous_msg_count = len(current_task.messages)
                 
-                self.agent.run_task(self.current_task)
-                task_store.save_task(self.current_task)
+                self.agent.run_task(current_task)
+                
+                # Update session history with whatever the agent appended
+                self.session_messages = current_task.messages.copy()
+                task_store.save_task(current_task)
                 
                 # Speak new messages
                 if not self.cancel_requested:
-                    new_messages = self.current_task.messages[previous_msg_count:]
+                    new_messages = current_task.messages[previous_msg_count:]
                     text_to_speak = ""
                     for msg in new_messages:
                         if msg.get("role") == "assistant" and msg.get("content"):
@@ -402,9 +410,9 @@ class RUOXHUD(ctk.CTk):
                 self.ui_queue.put({"type": "state", "state": "ERROR"})
                 self.ui_queue.put({"type": "print", "text": f"Thread Error: {e}", "end": "\n"})
             finally:
-                # Cleanup system message context
+                # Cleanup system message context from session history so it doesn't leak to next turn
                 if context_msg:
-                    self.current_task.messages = [m for m in self.current_task.messages if m.get("content") != context_msg]
+                    self.session_messages = [m for m in self.session_messages if m.get("content") != context_msg]
 
         self.agent_thread = threading.Thread(target=run_agent, daemon=True)
         self.agent_thread.start()

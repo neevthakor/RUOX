@@ -57,7 +57,7 @@ class MemoryManager:
             # Final score
             score = (relevance * 2.0) + mem.importance + (recency * 0.5)
             
-            if score > 0.5: # Threshold
+            if score > 0.5 and relevance > 0: # Threshold requires at least some textual relevance
                 scored.append((score, mem))
                 
         scored.sort(key=lambda x: x[0], reverse=True)

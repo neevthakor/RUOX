@@ -76,6 +76,8 @@ RUOX is a fully local, secure AI desktop assistant powered by Ollama and Qwen 2.
 - **Context Management**: Memory and Task histories are selectively injected only when relevant data exists, and conversation history is bounded to the last 5 turns to prevent context bloat.
 - **Streaming**: Generation chunks (`stream=True`) pipe instantly to the UI asynchronously.
 - **Cancellation**: Pressing STOP cooperatively breaks the active Ollama inference stream and terminates active TTS immediately.
+
+## Security Model
 RUOX runs strictly in `LOCAL_ONLY=true` mode. It guarantees:
 1. **No Data Exfiltration**: No API calls to cloud LLMs, cloud TTS, or cloud STT.
 2. **Permission Model**: Every tool defines a permission level (`READ`, `LOW_RISK`, `MEDIUM_RISK`, `HIGH_RISK`).
@@ -106,6 +108,7 @@ Here are a few ways to interact with RUOX:
 ```bash
 python -m app.main --voice
 ```
+*(Press Enter to stop recording after speaking)*
 
 ### Desktop HUD Mode
 ```bash
@@ -113,7 +116,6 @@ python -m app.ui.hud
 ```
 
 ---
-*(Press Enter to stop recording after speaking)*
 
 ### Diagnostics & Tests
 To verify your system compatibility and safety policies:
@@ -160,6 +162,5 @@ python -m app.main
 Type your query. Press Ctrl+C while the model is typing to cancel the generation.
 
 ### 6. Voice Setup
-Voice is supported. `faster-whisper` requires `STT_MODEL` (default: tiny.en).
+Voice is fully supported via HUD and CLI. `faster-whisper` requires `STT_MODEL` (default: tiny.en).
 `pyttsx3` uses native Windows voices and requires no extra downloads.
-*(Note: Voice command interface integration is a work in progress for P2, but the backend `app/voice` modules are ready and testable).*

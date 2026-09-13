@@ -87,9 +87,8 @@ def main():
     
     base_prompt = "You are RUOX, a secure local AI assistant. Keep responses extremely brief and concise when in voice mode." if args.voice else "You are RUOX, a secure local AI assistant. You can help the user with tasks and use tools when needed."
     
-    # Create an ongoing task/session
-    task = Task(goal="Interactive session started.")
-    task.messages = [
+    # Create an ongoing session history
+    session_messages = [
         {
             "role": "system",
             "content": f"{base_prompt}\n\n{system_context}"
@@ -126,12 +125,13 @@ def main():
                 if not user_input.strip():
                     continue
                 
-            task.messages.append({"role": "user", "content": user_input})
-            task.status = "RUNNING"
-            
             # Fetch relevant memory context only if likely needed
             relevant_mems = memory_manager.search_relevant_memories(user_input, limit=3)
-            recent_tasks = task_store.get_recent_tasks(limit=1)
+            
+            recent_tasks = []
+            words = set(user_input.lower().split())
+            if any(w in words for w in ["task", "resume", "continue", "earlier", "previous", "status", "last"]):
+                recent_tasks = task_store.get_recent_tasks(limit=1)
             
             context_msg = None
             if relevant_mems or recent_tasks:
@@ -144,19 +144,27 @@ def main():
                     parts.append(f"RECENT TASK HISTORY:\n{task_text}")
                 
                 context_msg = "[SYSTEM CONTEXT]\n" + "\n\n".join(parts)
-                task.messages.insert(-1, {"role": "system", "content": context_msg})
+                session_messages.append({"role": "system", "content": context_msg})
+                
+            session_messages.append({"role": "user", "content": user_input})
             
-            previous_msg_count = len(task.messages)
-            task = agent.run_task(task)
-            task_store.save_task(task)
+            current_task = Task(goal=user_input)
+            current_task.messages = session_messages.copy()
+            previous_msg_count = len(current_task.messages)
+            
+            current_task = agent.run_task(current_task)
+            
+            # Update session history
+            session_messages = current_task.messages.copy()
+            task_store.save_task(current_task)
             
             # Remove the temporary context block so it doesn't bloat the history forever
             if context_msg:
-                task.messages = [msg for msg in task.messages if msg.get("content") != context_msg]
+                session_messages = [msg for msg in session_messages if msg.get("content") != context_msg]
             
             if args.voice and tts.is_available():
                 # Read out all new assistant messages generated during the loop
-                new_messages = task.messages[previous_msg_count:]
+                new_messages = current_task.messages[previous_msg_count:]
                 for msg in new_messages:
                     if msg.get("role") == "assistant" and msg.get("content"):
                         tts.speak(msg["content"])
