@@ -1,8 +1,9 @@
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from app.tools.registry import ToolRegistry, tool_registry
 from app.core.agent import RUOXAgent
 from app.core.state import Task
+from app.llm.ollama import OllamaProvider
 
 from app.tools.system import SystemTimeTool, SystemInfoTool
 from app.tools.memory import RememberInformationTool, SearchMemoryTool
@@ -54,6 +55,18 @@ class TestP61Regression(unittest.TestCase):
         names = [s["function"]["name"] for s in schemas]
         self.assertIn("web_search", names)
         
+    @patch("app.llm.ollama.httpx.Client")
+    def test_01_llm_is_available(self, mock_client_class):
+        # Should return true if LLM is responsive
+        mock_res = MagicMock()
+        mock_res.status_code = 200
+        mock_client = MagicMock()
+        mock_client.get.return_value = mock_res
+        mock_client_class.return_value = mock_client
+        
+        provider = OllamaProvider()
+        self.assertTrue(provider.is_available())
+
     def test_07_bounded_conversation_context(self):
         mock_provider = MagicMock()
         mock_provider.stream.return_value = [{"message": {"content": "Response"}}]

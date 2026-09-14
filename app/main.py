@@ -161,6 +161,7 @@ def main():
             # Remove the temporary context block so it doesn't bloat the history forever
             if context_msg:
                 session_messages = [msg for msg in session_messages if msg.get("content") != context_msg]
+            session_messages = [msg for msg in session_messages if not (msg.get("role") == "system" and "Plan Execution Results" in msg.get("content", ""))]
             
             if args.voice and tts.is_available():
                 # Read out all new assistant messages generated during the loop

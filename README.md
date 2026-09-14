@@ -21,6 +21,8 @@ RUOX is a fully local, secure AI desktop assistant powered by Ollama and Qwen 2.
 * **P0**: Foundation (LLM Router, Agent Loop, Tool Registry, Security/Permissions, Redaction) - **COMPLETE**
 * **P1**: Interactive & Voice Mode (faster-whisper STT, pyttsx3 TTS, CLI REPL) - **COMPLETE**
 * **P2**: Controlled Computer Automation (Filesystem, Shell, App Launcher, Safety Policy) - **COMPLETE**
+* **P3-P6**: Persistent Memory, Web Research, Screen Vision, Desktop HUD - **COMPLETE**
+* **P7**: Intelligent Planning & Orchestration - **COMPLETE**
 
 ## Features & Available Tools
 * **Voice Mode**: Push-to-talk voice interface using lightweight, fully local models.
@@ -68,6 +70,12 @@ RUOX is a fully local, secure AI desktop assistant powered by Ollama and Qwen 2.
 - **Live Status Panels**: Real-time visibility into Security (LOCAL_ONLY), active Memory, running Tasks, and Vision subsystem status.
 - **Approval Flow**: Danger/Confirmation actions present a clear Approve/Deny dialog directly in the GUI.
 - **Push-to-Talk Voice**: Native MIC integration with real-time TTS readout.
+
+### Intelligent Planning & Orchestration (P7)
+- **Multi-Step Execution**: Provides permission-controlled multi-step task execution rather than simple single-shot replies. 
+- **Dynamic Mode Classifier**: Deterministically routes user intent to `DIRECT`, `TOOL`, or `PLAN` mode to keep simple queries fast and only invoke planning when needed.
+- **Isolated Executor**: Execution is strictly separated from planning. The LLM creates the plan, but a rigid Executor validates and runs it, preventing bypassing of security and confirmation layers.
+- **Safe Recovery**: Tasks pause dynamically for user approval and can resume where they left off. Failed steps will automatically retry with a bounded retry limit.
 
 ---
 

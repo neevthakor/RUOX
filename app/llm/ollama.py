@@ -1,4 +1,4 @@
-import requests
+import httpx
 from typing import List, Dict, Any, Optional
 from app.llm.base import LLMProvider
 
@@ -6,6 +6,8 @@ class OllamaProvider(LLMProvider):
     def __init__(self, base_url: str = "http://localhost:11434", model: str = "qwen2.5:7b"):
         self.base_url = base_url
         self.model = model
+        # Use a single client with standard timeouts
+        self.client = httpx.Client(base_url=self.base_url, timeout=httpx.Timeout(120.0, connect=5.0))
 
     def generate(self, messages: List[Dict[str, str]], tools: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
         payload = {
@@ -17,10 +19,10 @@ class OllamaProvider(LLMProvider):
             payload["tools"] = tools
 
         try:
-            response = requests.post(f"{self.base_url}/api/chat", json=payload, timeout=(5, 120))
+            response = self.client.post("/api/chat", json=payload)
             response.raise_for_status()
             return response.json()
-        except requests.exceptions.Timeout as e:
+        except httpx.TimeoutException as e:
             return {"error": f"LLM Timeout: {str(e)}"}
         except Exception as e:
             return {"error": str(e)}
@@ -36,18 +38,17 @@ class OllamaProvider(LLMProvider):
             payload["tools"] = tools
 
         try:
-            with requests.post(f"{self.base_url}/api/chat", json=payload, stream=True, timeout=(5, 120)) as response:
+            with self.client.stream("POST", "/api/chat", json=payload) as response:
                 response.raise_for_status()
                 for line in response.iter_lines():
                     if line:
                         yield json.loads(line)
-        except requests.exceptions.Timeout as e:
+        except httpx.TimeoutException as e:
             yield {"error": f"LLM Timeout: {str(e)}"}
         except Exception as e:
             yield {"error": str(e)}
 
     def supports_vision(self) -> bool:
-        # Depends on model, simplistic check
         return "llava" in self.model or "vision" in self.model
 
     def supports_tools(self) -> bool:
@@ -55,7 +56,7 @@ class OllamaProvider(LLMProvider):
 
     def is_available(self) -> bool:
         try:
-            res = requests.get(self.base_url)
+            res = self.client.get("/")
             return res.status_code == 200
         except:
             return False

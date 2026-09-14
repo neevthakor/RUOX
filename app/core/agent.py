@@ -23,49 +23,119 @@ class RUOXAgent:
             return input(prompt_text)
 
     def run_task(self, task: Task):
+        from app.core.planner import Planner
+        from app.core.executor import Executor
+        
+        planner = Planner(self.router.get_provider(PrivacyClass.PRIVATE, "MEDIUM"))
+        executor = Executor(callbacks=self.callbacks)
+        
         t_start = time.time()
         self._print(f"Starting task: {task.goal}")
         task.status = "RUNNING"
         
         llm = self.router.get_provider(PrivacyClass.PRIVATE, "MEDIUM")
         
-        # System prompt initialization if no messages exist
         if not task.messages:
             task.messages.append({
                 "role": "system",
                 "content": "You are RUOX, a secure local AI assistant. Keep responses brief."
             })
             task.messages.append({"role": "user", "content": task.goal})
-
-        while task.status == "RUNNING":
+            
+        intent = planner.classify_intent(task.goal)
+        self._print(f"[Agent] Intent classified as: {intent}")
+        
+        if intent == "PLAN":
             if "on_state_change" in self.callbacks:
                 self.callbacks["on_state_change"]("THINKING")
                 
-            # Filter schemas based on current user goal or recent history
+            self._print("\n[Agent] Generating execution plan...")
+            plan = planner.generate_plan(task.goal, task.messages)
+            
+            if not plan:
+                self._print("\n[Agent] Failed to generate plan. Falling back to default execution.")
+                task.status = "FAILED"
+                return task
+                
+            if not planner.validate_plan(plan):
+                self._print("\n[Agent] Plan validation failed. Safety check rejected plan.")
+                # We could ask for clarification, but we fail closed
+                task.messages.append({
+                    "role": "assistant",
+                    "content": "I generated a plan, but it failed safety validation. Task aborted."
+                })
+                task.status = "FAILED"
+                return task
+                
+            task.plan = plan
+            
+            self._print("\n[Agent] Validated Plan:")
+            for step in plan.steps:
+                self._print(f"  {step.step_id}. {step.description} (Tool: {step.tool_name})")
+                
+            # Execute plan
+            executed_plan = executor.execute_plan(plan, task.task_id)
+            
+            # Feed results back to LLM for final response
+            context_results = []
+            for step in executed_plan.steps:
+                if step.status == "COMPLETED" and step.result:
+                    context_results.append(f"Step {step.step_id} ({step.description}) Result: {step.result}")
+                elif step.status == "FAILED":
+                    context_results.append(f"Step {step.step_id} ({step.description}) FAILED: {step.error}")
+            
+            if context_results:
+                task.messages.append({
+                    "role": "system",
+                    "content": "Plan Execution Results:\n" + "\n".join(context_results) + "\n\nProvide a final concise response to the user."
+                })
+            else:
+                task.messages.append({
+                    "role": "system",
+                    "content": "Plan completed but no results were gathered. Provide a final response."
+                })
+                
+            # Now fall through to the LLM generation for final response
+            # we want a single generation turn, similar to DIRECT/TOOL
+            
+        # Standard generation loop (handles DIRECT, TOOL, and final response of PLAN)
+        MAX_AGENT_ITERATIONS = 5
+        iteration_count = 0
+        
+        while task.status == "RUNNING":
+            iteration_count += 1
+            if iteration_count > MAX_AGENT_ITERATIONS:
+                self._print("\n[Agent] MAX_AGENT_ITERATIONS reached. Task failed safely to prevent infinite loop.")
+                task.status = "FAILED"
+                task.messages.append({"role": "assistant", "content": "I apologize, but I was unable to complete the request within the iteration limit."})
+                break
+                
+            if "on_state_change" in self.callbacks:
+                self.callbacks["on_state_change"]("THINKING")
+                
             recent_text = " ".join([m["content"] for m in task.messages[-3:] if m["role"] == "user"])
-            tools = tool_registry.get_schemas_for_context(recent_text)
             
-            # Bound context to prevent endless growth
-            # Always keep system messages
+            # If we are in PLAN mode and just generating the final response, we don't necessarily need tools
+            # If we are in DIRECT mode, we strictly don't pass tools to save context and speed up.
+            if intent == "TOOL":
+                tools = tool_registry.get_schemas_for_context(recent_text)
+            else:
+                tools = None
+                
             system_msgs = [m for m in task.messages if m["role"] == "system"]
-            # Keep the last 10 messages (5 turns)
             recent_msgs = [m for m in task.messages if m["role"] != "system"][-10:]
-            
             bounded_messages = system_msgs + recent_msgs
             
-            # Print performance metrics
             sys_chars = sum(len(m["content"]) for m in system_msgs)
             hist_chars = sum(len(m["content"]) for m in recent_msgs)
-            total_chars = sys_chars + hist_chars
             
-            self._print(f"\n[RUOX PERF] tools={len(tools)} sys_chars={sys_chars} hist_chars={hist_chars} approx_context_chars={total_chars}")
-            
+            self._print(f"\n[RUOX PERF] tools={len(tools) if tools else 0} sys_chars={sys_chars} hist_chars={hist_chars}")
             self._print("\nRUOX: ", end="", flush=True)
+            
             full_content = ""
             tool_calls = []
-            
-            t_req_start = time.time()
             first_token_received = False
+            t_req_start = time.time()
             
             try:
                 for chunk in llm.stream(bounded_messages, tools=tools):
@@ -97,16 +167,11 @@ class RUOXAgent:
                     if "tool_calls" in message_chunk and message_chunk["tool_calls"]:
                         tool_calls = message_chunk["tool_calls"]
                         
-                self._print("") # Newline after response
-                t_end_gen = time.time()
+                self._print("")
                 if first_token_received:
-                    self._print(f"[Perf] Generation time: {t_end_gen - t_first_token:.2f}s")
-            except KeyboardInterrupt:
-                self._print("\n[Generation Cancelled]")
-                task.status = "WAITING_USER"
-                return task
+                    self._print(f"[Perf] Generation time: {time.time() - t_first_token:.2f}s")
+                    
             except Exception as e:
-                # E.g. cancellation exception from UI
                 self._print(f"\n[Generation Interrupted: {e}]")
                 task.status = "WAITING_USER"
                 return task
@@ -114,10 +179,8 @@ class RUOXAgent:
             message = {"role": "assistant", "content": full_content}
             if tool_calls:
                 message["tool_calls"] = tool_calls
-                
             task.messages.append(message)
                 
-            # Handle tool calls
             if "tool_calls" in message and message["tool_calls"]:
                 for tcall in message["tool_calls"]:
                     func = tcall.get("function", {})
@@ -125,31 +188,19 @@ class RUOXAgent:
                     args = func.get("arguments", {})
                     
                     if not name:
-                        self._print("\n[RUOX] Warning: Received empty tool name from LLM.")
-                        task.messages.append({
-                            "role": "tool",
-                            "content": "Error: Tool name was empty.",
-                            "name": "unknown"
-                        })
+                        task.messages.append({"role": "tool", "content": "Error: Tool name empty.", "name": "unknown"})
                         continue
                         
                     if isinstance(args, str):
-                        try:
-                            args = json.loads(args)
-                        except:
-                            self._print(f"\n[RUOX] Warning: Malformed arguments for tool {name}.")
-                            task.messages.append({
-                                "role": "tool",
-                                "content": f"Error: Malformed arguments: {args}",
-                                "name": name
-                            })
+                        try: args = json.loads(args)
+                        except: 
+                            task.messages.append({"role": "tool", "content": f"Error: Malformed arguments: {args}", "name": name})
                             continue
-                    
+                            
                     if "on_state_change" in self.callbacks:
                         self.callbacks["on_state_change"]("TOOL_EXECUTION", {"tool": name})
                         
                     self._print(f"\n[RUOX is attempting to use tool: {name}]")
-                    t_tool_start = time.time()
                     step = TaskStep(id=len(task.steps)+1, action=name)
                     task.steps.append(step)
                     
@@ -162,60 +213,30 @@ class RUOXAgent:
                                 self.callbacks["on_state_change"]("WAITING_APPROVAL", {"tool": name, "args": args, "desc": tool.description})
                                 
                             self._print(f"\n--- ACTION PREVIEW ---")
-                            self._print(f"Action: {tool.name}")
-                            self._print(f"Description: {tool.description}")
-                            if args:
-                                self._print(f"Arguments:")
-                                for k, v in args.items():
-                                    self._print(f"  {k}: {v}")
-                            self._print(f"Risk Level: CONFIRMATION REQUIRED")
-                            self._print(f"----------------------")
+                            self._print(f"Action: {tool.name}\nRisk Level: CONFIRMATION REQUIRED")
                             
                             choice = self._input("Approve execution? [y/N]: ").strip().lower()
                             if choice != 'y':
                                 self._print("[RUOX] Action denied.")
-                                task.messages.append({
-                                    "role": "tool",
-                                    "content": "Error: User denied tool execution.",
-                                    "name": name
-                                })
+                                task.messages.append({"role": "tool", "content": "Error: User denied.", "name": name})
                                 continue
                             
                             result = tool.execute(args, user_confirmed=True)
                             
-                        t_tool_end = time.time()
-                        self._print(f"[Perf] Tool {name} execution time: {t_tool_end - t_tool_start:.2f}s")
-                        
                         if not result.success:
                             step.status = "failed"
                             step.observation = result.error
-                            self._print(f"Tool {name} failed: {result.error}")
-                            task.messages.append({
-                                "role": "tool",
-                                "content": f"Error: {result.error}",
-                                "name": name
-                            })
+                            task.messages.append({"role": "tool", "content": f"Error: {result.error}", "name": name})
                         else:
                             step.status = "done"
                             step.observation = str(result.output)
-                            self._print(f"Tool {name} succeeded.")
-                            task.messages.append({
-                                "role": "tool",
-                                "content": str(result.output),
-                                "name": name
-                            })
+                            task.messages.append({"role": "tool", "content": str(result.output), "name": name})
                     else:
-                        self._print(f"\n[RUOX] Warning: Unknown tool requested: {name}")
-                        task.messages.append({
-                            "role": "tool",
-                            "content": f"Error: Tool {name} not found or not registered.",
-                            "name": name
-                        })
-                # After handling all tool calls, we loop back to let the LLM produce the final response
-                # Since task.status is still RUNNING, the loop continues and calls llm.stream() again
+                        task.messages.append({"role": "tool", "content": f"Error: Tool {name} not found.", "name": name})
+                
+                # Loop back for LLM response
                 continue
             else:
-                # No tool calls, wait for next user input
                 task.status = "WAITING_USER"
                 
         return task

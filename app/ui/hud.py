@@ -413,6 +413,8 @@ class RUOXHUD(ctk.CTk):
                 # Cleanup system message context from session history so it doesn't leak to next turn
                 if context_msg:
                     self.session_messages = [m for m in self.session_messages if m.get("content") != context_msg]
+                # Cleanup transient Plan Execution Results so they don't bloat future turns
+                self.session_messages = [m for m in self.session_messages if not (m.get("role") == "system" and "Plan Execution Results" in m.get("content", ""))]
 
         self.agent_thread = threading.Thread(target=run_agent, daemon=True)
         self.agent_thread.start()

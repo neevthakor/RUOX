@@ -25,23 +25,31 @@ class TaskStore:
             if task.status == "DONE":
                 result = "Task completed successfully."
                 
+            # If plan exists, merge it into metadata
+            metadata = {}
+            if task.plan:
+                # We redact args if we want to be safe, but redaction happens at generation time.
+                metadata["plan"] = task.plan.model_dump()
+                
+            metadata_json = json.dumps(metadata)
+            
             if exists:
                 cursor.execute('''
                     UPDATE tasks SET
-                        status = ?, updated_at = ?, current_step = ?, steps = ?, result = ?
+                        status = ?, updated_at = ?, current_step = ?, steps = ?, result = ?, metadata = ?
                     WHERE id = ?
                 ''', (
-                    task.status, datetime.utcnow().isoformat(), current_step, steps_json, result, task.task_id
+                    task.status, datetime.now().astimezone().isoformat(), current_step, steps_json, result, metadata_json, task.task_id
                 ))
             else:
                 cursor.execute('''
                     INSERT INTO tasks (
-                        id, goal, status, created_at, updated_at, steps, current_step, result
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        id, goal, status, created_at, updated_at, steps, current_step, result, metadata
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     task.task_id, task.goal, task.status, 
-                    task.created_at.isoformat(), datetime.utcnow().isoformat(),
-                    steps_json, current_step, result
+                    task.created_at.isoformat(), datetime.now().astimezone().isoformat(),
+                    steps_json, current_step, result, metadata_json
                 ))
             conn.commit()
         finally:
