@@ -26,14 +26,13 @@ class RUOXAgent:
         from app.core.planner import Planner
         from app.core.executor import Executor
         
-        planner = Planner(self.router.get_provider(PrivacyClass.PRIVATE, "MEDIUM"))
-        executor = Executor(callbacks=self.callbacks)
-        
         t_start = time.time()
         self._print(f"Starting task: {task.goal}")
         task.status = "RUNNING"
         
-        llm = self.router.get_provider(PrivacyClass.PRIVATE, "MEDIUM")
+        # Planner always uses a medium/strong model for complex reasoning if it has to
+        planner = Planner(self.router.get_provider(PrivacyClass.PRIVATE, "PLAN"))
+        executor = Executor(callbacks=self.callbacks)
         
         if not task.messages:
             task.messages.append({
@@ -42,8 +41,35 @@ class RUOXAgent:
             })
             task.messages.append({"role": "user", "content": task.goal})
             
+        bypass_call = planner.get_deterministic_bypass(task.goal)
+        if bypass_call:
+            if bypass_call["name"] == "_direct_answer":
+                output = bypass_call["arguments"].get("answer", "")
+                self._print(f"[Agent] Deterministic bypass triggered: Direct Answer")
+                task.messages.append({"role": "assistant", "content": output})
+                if "on_token" in self.callbacks:
+                    self.callbacks["on_token"](output)
+                self._print(output)
+                task.status = "WAITING_USER"
+                return task
+                
+            self._print(f"[Agent] Deterministic bypass triggered: {bypass_call['name']}")
+            tool = tool_registry.get_tool(bypass_call["name"])
+            if tool:
+                result = tool.execute(bypass_call.get("arguments", {}), user_confirmed=True) # deterministic are usually safe reads
+                if result.success:
+                    output = str(result.output)
+                    task.messages.append({"role": "assistant", "content": output})
+                    if "on_token" in self.callbacks:
+                        self.callbacks["on_token"](output)
+                    self._print(output)
+                    task.status = "WAITING_USER"
+                    return task
+        
         intent = planner.classify_intent(task.goal)
         self._print(f"[Agent] Intent classified as: {intent}")
+        
+        llm = self.router.get_provider(PrivacyClass.PRIVATE, intent)
         
         if intent == "PLAN":
             if "on_state_change" in self.callbacks:
@@ -57,7 +83,7 @@ class RUOXAgent:
                 task.status = "FAILED"
                 return task
                 
-            if not planner.validate_plan(plan):
+            if not planner.validate_plan(plan, task.goal):
                 self._print("\n[Agent] Plan validation failed. Safety check rejected plan.")
                 # We could ask for clarification, but we fail closed
                 task.messages.append({
@@ -113,11 +139,11 @@ class RUOXAgent:
             if "on_state_change" in self.callbacks:
                 self.callbacks["on_state_change"]("THINKING")
                 
-            recent_text = " ".join([m["content"] for m in task.messages[-3:] if m["role"] == "user"])
+            recent_text = " ".join([m["content"] for m in task.messages if m.get("role") == "user"][-3:])
             
             # If we are in PLAN mode and just generating the final response, we don't necessarily need tools
             # If we are in DIRECT mode, we strictly don't pass tools to save context and speed up.
-            if intent == "TOOL":
+            if intent in ["TOOL_SIMPLE", "TOOL_COMPLEX", "BROWSER", "PROACTIVE", "KNOWLEDGE", "AUTONOMOUS_TASK"]:
                 tools = tool_registry.get_schemas_for_context(recent_text)
             else:
                 tools = None
@@ -182,6 +208,9 @@ class RUOXAgent:
             task.messages.append(message)
                 
             if "tool_calls" in message and message["tool_calls"]:
+                # Prevent infinite loops with identical tool calls
+                duplicate_detected = False
+                
                 for tcall in message["tool_calls"]:
                     func = tcall.get("function", {})
                     name = func.get("name")
@@ -197,11 +226,24 @@ class RUOXAgent:
                             task.messages.append({"role": "tool", "content": f"Error: Malformed arguments: {args}", "name": name})
                             continue
                             
+                    # Check if this exact tool and args were just executed in the previous step
+                    # to prevent deterministic identical loops
+                    if len(task.steps) > 0:
+                        last_step = task.steps[-1]
+                        if last_step.action == name and getattr(last_step, '_last_args', None) == args:
+                            self._print(f"\n[Agent] Loop protection: {name} was just executed with identical arguments. Breaking loop.")
+                            duplicate_detected = True
+                            break
+                            
+                    if duplicate_detected:
+                        break
+                            
                     if "on_state_change" in self.callbacks:
                         self.callbacks["on_state_change"]("TOOL_EXECUTION", {"tool": name})
                         
                     self._print(f"\n[RUOX is attempting to use tool: {name}]")
                     step = TaskStep(id=len(task.steps)+1, action=name)
+                    step._last_args = args  # Save for loop detection
                     task.steps.append(step)
                     
                     tool = tool_registry.get_tool(name)
@@ -234,6 +276,12 @@ class RUOXAgent:
                     else:
                         task.messages.append({"role": "tool", "content": f"Error: Tool {name} not found.", "name": name})
                 
+                if duplicate_detected:
+                    # Fall through to let LLM respond or fail safely
+                    task.status = "FAILED"
+                    task.messages.append({"role": "assistant", "content": "I am stuck in a loop trying to execute the same action. Aborting."})
+                    break
+                    
                 # Loop back for LLM response
                 continue
             else:

@@ -40,21 +40,37 @@ class RUOXHUD(ctk.CTk):
         self._build_ui()
         
         # Periodic update loop
-        self.after(100, self._process_queue)
+        self.after(20, self._process_queue)
         self.after(2000, self._update_status_panels)
 
     def _init_backend(self):
+        base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
         self.local_llm = OllamaProvider(
-            base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+            base_url=base_url,
             model=os.getenv("DEFAULT_LOCAL_MODEL", "qwen2.5:7b")
         )
-        self.router = LLMRouter(local_provider=self.local_llm)
+        self.fast_llm = OllamaProvider(
+            base_url=base_url,
+            model=os.getenv("FAST_LOCAL_MODEL", "qwen2.5:0.5b")
+        )
+        self.strong_llm = OllamaProvider(
+            base_url=base_url,
+            model=os.getenv("STRONG_LOCAL_MODEL", "qwen2.5:14b")
+        )
+        self.router = LLMRouter(local_provider=self.local_llm, fast_provider=self.fast_llm, strong_provider=self.strong_llm)
+        
+        # Eagerly initialize and warm up providers in the background to avoid 35s penalty on first run
+        self.fast_llm.warmup()
+        self.strong_llm.warmup()
         
         from app.tools.registry import tool_registry
         from app.tools.system import SystemTimeTool, SystemInfoTool
         from app.tools.computer import (
             OpenApplicationTool, ListDirectoryTool, GetFileInfoTool, 
-            CreateDirectoryTool, OpenPathTool, RunCommandTool
+            CreateDirectoryTool, OpenPathTool, RunCommandTool,
+            MousePositionTool, MouseMoveTool, MouseClickTool, MouseScrollTool,
+            KeyboardTypeTool, KeyboardHotkeyTool,
+            WindowListTool, WindowFocusTool, WindowCloseTool
         )
         from app.tools.memory import RememberInformationTool, SearchMemoryTool, ListMemoriesTool, ForgetMemoryTool, GetRecentTasksTool
         from app.tools.web import WebSearchTool, WebFetchTool, WebResearchTool
@@ -70,6 +86,15 @@ class RUOXHUD(ctk.CTk):
         tool_registry.register(CreateDirectoryTool())
         tool_registry.register(OpenPathTool())
         tool_registry.register(RunCommandTool())
+        tool_registry.register(MousePositionTool())
+        tool_registry.register(MouseMoveTool())
+        tool_registry.register(MouseClickTool())
+        tool_registry.register(MouseScrollTool())
+        tool_registry.register(KeyboardTypeTool())
+        tool_registry.register(KeyboardHotkeyTool())
+        tool_registry.register(WindowListTool())
+        tool_registry.register(WindowFocusTool())
+        tool_registry.register(WindowCloseTool())
         tool_registry.register(RememberInformationTool())
         tool_registry.register(SearchMemoryTool())
         tool_registry.register(ListMemoriesTool())
@@ -328,7 +353,7 @@ class RUOXHUD(ctk.CTk):
             self.set_state("IDLE")
             self.append_chat("\n\n")
 
-        self.after(100, self._process_queue)
+        self.after(20, self._process_queue)
         
     def _update_status_panels(self):
         try:
@@ -352,27 +377,11 @@ class RUOXHUD(ctk.CTk):
         self.append_chat(f"USER: {text}\n", "user")
         
         # Inject dynamic context only if relevant data exists (Optimization)
-        relevant_mems = memory_manager.search_relevant_memories(text, limit=3)
-        
-        recent_tasks = []
-        words = set(text.lower().split())
-        if any(w in words for w in ["task", "resume", "continue", "earlier", "previous", "status", "last"]):
-            recent_tasks = task_store.get_recent_tasks(limit=1)
-        
-        context_msg = None
-        if relevant_mems or recent_tasks:
-            parts = []
-            if relevant_mems:
-                mem_text = "\n".join([f"- {m.content}" for m in relevant_mems])
-                parts.append(f"RELEVANT MEMORIES:\n{mem_text}")
-            if recent_tasks:
-                task_text = "\n".join([f"- {t['goal']} ({t['status']})" for t in recent_tasks])
-                parts.append(f"RECENT TASK HISTORY:\n{task_text}")
-                
-            context_msg = "[SYSTEM CONTEXT]\n" + "\n\n".join(parts)
-            self.session_messages.append({"role": "system", "content": context_msg})
-            
         self.session_messages.append({"role": "user", "content": text})
+        
+        # Bounded conversation history (keep last 10 conversational messages)
+        # Filter out tool/system messages to save token space
+        cleaned_history = [m for m in self.session_messages if m.get("role") in ["user", "assistant"]][-10:]
         
         # We start the agent thread
         if self.agent_thread and self.agent_thread.is_alive():
@@ -383,15 +392,45 @@ class RUOXHUD(ctk.CTk):
         
         def run_agent():
             try:
+                # Perform DB lookups off the main thread to prevent UI freezing
+                relevant_mems = memory_manager.search_relevant_memories(text, limit=3)
+                
+                recent_tasks = []
+                words = set(text.lower().split())
+                if any(w in words for w in ["task", "resume", "continue", "earlier", "previous", "status", "last"]):
+                    recent_tasks = task_store.get_recent_tasks(limit=1)
+                
+                context_msg = None
+                if relevant_mems or recent_tasks:
+                    parts = []
+                    if relevant_mems:
+                        mem_text = "\n".join([f"- {m.content}" for m in relevant_mems])
+                        parts.append(f"RELEVANT MEMORIES:\n{mem_text}")
+                    if recent_tasks:
+                        task_text = "\n".join([f"- {t['goal']} ({t['status']})" for t in recent_tasks])
+                        parts.append(f"RECENT TASK HISTORY:\n{task_text}")
+                        
+                    context_msg = {"role": "system", "content": "[SYSTEM CONTEXT]\n" + "\n\n".join(parts)}
+
                 # Create a fresh Task for this specific interaction
                 current_task = Task(goal=text)
-                current_task.messages = self.session_messages.copy()
+                
+                # Construct messages list cleanly
+                current_task.messages = []
+                if context_msg:
+                    current_task.messages.append(context_msg)
+                current_task.messages.extend(cleaned_history)
+                
                 previous_msg_count = len(current_task.messages)
                 
                 self.agent.run_task(current_task)
                 
-                # Update session history with whatever the agent appended
-                self.session_messages = current_task.messages.copy()
+                # Update session history with ONLY the final assistant response
+                # to avoid saving transient tool calls and plans indefinitely
+                for msg in current_task.messages[previous_msg_count:]:
+                    if msg.get("role") == "assistant":
+                        self.session_messages.append(msg)
+                        
                 task_store.save_task(current_task)
                 
                 # Speak new messages

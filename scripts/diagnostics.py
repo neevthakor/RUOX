@@ -26,6 +26,18 @@ def run_diagnostics():
             models = [t["name"] for t in tags.get("models", [])]
             if model in models or f"{model}:latest" in models:
                 print(f"[OK] Local LLM ({model} available)")
+                # Perform a lightweight generation check
+                try:
+                    import time
+                    start = time.time()
+                    res = llm.generate([{"role": "user", "content": "Reply with exactly the word OK."}])
+                    if "error" not in res and res.get("message", {}).get("content"):
+                        duration = time.time() - start
+                        print(f"[OK] Local LLM generation ({duration:.2f}s)")
+                    else:
+                        print(f"[FAIL] Local LLM generation: {res.get('error', 'Empty response')}")
+                except Exception as e:
+                    print(f"[FAIL] Local LLM generation threw exception: {e}")
             else:
                 print(f"[WARN] Local LLM reachable, but model '{model}' not found.")
         except:
@@ -59,6 +71,17 @@ def run_diagnostics():
         print("[OK] Memory Database")
         print("[OK] Memory Service")
         print("[OK] Task Persistence")
+        
+        # Check P14-P16 schema updates
+        conn = db_manager.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('schedules', 'entities', 'relationships')")
+        tables = {row['name'] for row in cursor.fetchall()}
+        if 'schedules' in tables: print("[OK] Scheduler Database (P15)")
+        else: print("[FAIL] Scheduler Database (P15) missing")
+        if 'entities' in tables and 'relationships' in tables: print("[OK] Knowledge Database (P16)")
+        else: print("[FAIL] Knowledge Database (P16) missing")
+        conn.close()
     except Exception as e:
         print(f"[FAIL] Memory/Database Error: {e}")
         

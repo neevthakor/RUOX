@@ -5,7 +5,7 @@ import queue
 class TTSEngine:
     def __init__(self):
         self._is_available = False
-        self._q = queue.Queue()
+        self._q = queue.Queue(maxsize=50) # Bounded queue
         self._worker_thread = None
         self._running = False
         
@@ -45,7 +45,10 @@ class TTSEngine:
                         break
                     
                     if text == "__STOP__":
-                        engine.stop()
+                        try:
+                            engine.stop()
+                        except Exception:
+                            pass
                         self._q.task_done()
                         continue
                         
@@ -67,11 +70,17 @@ class TTSEngine:
         if not self._is_available or not self._running:
             return
         # Put text into queue for the worker thread to process
-        self._q.put(text)
+        try:
+            self._q.put(text, block=False)
+        except queue.Full:
+            print("[WARN] TTS Queue full, dropping speech.")
 
     def stop(self):
         if self._is_available and self._running:
             # We put a special token or clear queue
             with self._q.mutex:
                 self._q.queue.clear()
-            self._q.put("__STOP__")
+            try:
+                self._q.put("__STOP__", block=False)
+            except queue.Full:
+                pass

@@ -57,14 +57,14 @@ class TestP61Regression(unittest.TestCase):
         
     @patch("app.llm.ollama.httpx.Client")
     def test_01_llm_is_available(self, mock_client_class):
-        # Should return true if LLM is responsive
         mock_res = MagicMock()
         mock_res.status_code = 200
+        mock_res.json.return_value = {"models": [{"name": "qwen2.5:7b"}]}
         mock_client = MagicMock()
         mock_client.get.return_value = mock_res
         mock_client_class.return_value = mock_client
         
-        provider = OllamaProvider()
+        provider = OllamaProvider(model="qwen2.5:7b")
         self.assertTrue(provider.is_available())
 
     def test_07_bounded_conversation_context(self):

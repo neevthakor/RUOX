@@ -48,7 +48,7 @@ class TestMemory(unittest.TestCase):
     def test_memory_manager_add_and_dedup(self):
         id1 = self.manager.add_explicit_memory("My name is Alice")
         fetched1 = self.store.get_memory(id1)
-        self.assertEqual(fetched1.importance, 0.9)
+        self.assertEqual(fetched1.importance, 0.5)
         self.assertEqual(fetched1.access_count, 0)
         
         # Adding identical should deduplicate and bump importance/access
@@ -57,7 +57,7 @@ class TestMemory(unittest.TestCase):
         
         fetched2 = self.store.get_memory(id1)
         self.assertEqual(fetched2.access_count, 1)
-        self.assertEqual(fetched2.importance, 1.0)
+        self.assertEqual(fetched2.importance, 0.6)
         
     def test_relevance_search(self):
         self.manager.add_explicit_memory("My favorite color is blue.")

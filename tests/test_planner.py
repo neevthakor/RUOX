@@ -47,10 +47,11 @@ class TestPlanner(unittest.TestCase):
         tool_registry.register(MockConfirmTool())
 
     def test_classify_intent(self):
-        self.assertEqual(self.planner.classify_intent("hello"), "DIRECT")
-        self.assertEqual(self.planner.classify_intent("who are you"), "DIRECT")
+        self.assertEqual(self.planner.classify_intent("hello"), "DIRECT_SIMPLE")
+        self.assertEqual(self.planner.classify_intent("who are you"), "DIRECT_SIMPLE")
         self.assertEqual(self.planner.classify_intent("find all python files and count them"), "PLAN")
-        self.assertEqual(self.planner.classify_intent("open calculator"), "TOOL")
+        self.assertEqual(self.planner.classify_intent("what time is it"), "TOOL_SIMPLE")
+        self.assertEqual(self.planner.classify_intent("open calculator"), "TOOL_COMPLEX")
 
     def test_generate_plan(self):
         self.llm.response_content = json.dumps([
@@ -71,6 +72,16 @@ class TestPlanner(unittest.TestCase):
             PlanStep(step_id=1, description="Step 1", tool_name="unknown_tool", arguments={}),
         ])
         self.assertFalse(self.planner.validate_plan(invalid_plan))
+        
+        # Test unrelated tool rejection
+        # get_current_time is a real tool, but not relevant to "create a file"
+        from app.tools.system import SystemTimeTool
+        tool_registry.register(SystemTimeTool())
+        unrelated_plan = Plan(steps=[
+            PlanStep(step_id=1, description="Step 1", tool_name="get_current_time", arguments={}),
+        ])
+        # It should fail because get_current_time is not in the schema for "create a file"
+        self.assertFalse(self.planner.validate_plan(unrelated_plan, goal="create a file"))
 
 class TestExecutor(unittest.TestCase):
     def setUp(self):
